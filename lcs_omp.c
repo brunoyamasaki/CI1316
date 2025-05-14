@@ -5,7 +5,6 @@
 
 #ifndef max
 #define max( a, b ) ( ((a) > (b)) ? (a) : (b) )
-#define DEBUGMATRIX
 #endif
 
 typedef unsigned short mtype;
@@ -78,28 +77,92 @@ void initScoreMatrix(mtype ** scoreMatrix, int sizeA, int sizeB) {
 		scoreMatrix[i][0] = 0;
 }
 
-int LCS(mtype ** scoreMatrix, int sizeA, int sizeB, char * seqA, char *seqB) {
-    int i, j, d;
 
-    int maxD = sizeA + sizeB;
-
-    for (d = 2; d <= maxD; d++) {
-        #pragma omp parallel for private(i, j) shared(scoreMatrix, seqA, seqB)
-        for (i = 1; i <= sizeB; i++) {
-            j = d - i;
-            if (j >= 1 && j <= sizeA) {
-                if (seqA[j - 1] == seqB[i - 1]) {
-                    scoreMatrix[i][j] = scoreMatrix[i - 1][j - 1] + 1;
-                } else {
-                    scoreMatrix[i][j] = max(scoreMatrix[i - 1][j], scoreMatrix[i][j - 1]);
-                }
-            }
-        }
-    }
-
-    return scoreMatrix[sizeB][sizeA];
+int idx_char(char *seq, char x, int size) {
+	int i;
+	for (i = 0; i < size; i++) {
+		if (seq[i] == x) {
+			return i;
+		}
+	}
+	fprintf(stderr, "Aviso: caractere não encontrado: '%c' (%d)\n", x, (int)x);
+	return -1;
 }
 
+void calcula_p(mtype ** p_matrix, char * seqB, int sizeB, char * seqC, int sizeC) {
+	#pragma omp para for
+	for(int i = 0; i < sizeC ; i++) {
+		for (int j = 0; j < sizeB + 1; j++) {
+				if(j == 0){
+					p_matrix[i][j] = 0;
+				} else if(seqB[j - 1] == seqC[i]){
+					p_matrix[i][j] = j;
+				} else {
+					p_matrix[i][j] = p_matrix[i][j - 1];
+				}
+			}
+	}
+}
+
+
+int LCS_par(mtype ** scoreMatrix, mtype **p, int sizeA, int sizeB, int sizeC,char *seqA, char *seqB, char *seqC) {
+	int i, j, t, s, idx_c;
+	int *linha_ant = (int *)malloc((sizeB+1) * sizeof(int));
+
+	for (i = 1; i < sizeA + 1; i++) {
+		//idx_c = idx_char(seqC, seqA[i], sizeC);
+		//if (idx_c == -1) {
+		//	fprintf(stderr, "Erro: caractere não encontrado: '%c' (%d)\n", seqA[i - 1], (int)seqA[i - 1]);
+		//	exit(EXIT_FAILURE);
+			//continue;
+		//}
+		//for(int m = 0; m < sizeC - 1; m++){
+		//	if (seqC[m] == seqA[i])
+		//		idx_c = m;
+		//}
+		#pragma omp parallel for private(t,s) schedule(static)
+		for (j = 1; j < sizeB + 1; j++) {
+			if (p[idx_c][j] > 0) {
+				t = 1;
+			} else {
+				t = 0;
+			}
+			if(t == 1){
+				if (scoreMatrix[i-1][j] == scoreMatrix[i-1][p[idx_c][j]]) {
+					s = 1;
+				} else {
+					s = 0;
+				}
+			} else {
+				s = 1;
+			}
+			if (t == 0 || s == 0){
+				scoreMatrix[i][j] = scoreMatrix[i-1][j];
+			} else {
+				scoreMatrix[i][j] = scoreMatrix[i-1][p[idx_c][j] - 1] + 1;
+			}
+		}
+	}
+	return scoreMatrix[sizeB][sizeA];
+}
+
+int LCS(mtype ** scoreMatrix, int sizeA, int sizeB, char * seqA, char *seqB) {
+	int i, j;
+	for (i = 1; i < sizeB + 1; i++) {
+		for (j = 1; j < sizeA + 1; j++) {
+			if (seqA[j - 1] == seqB[i - 1]) {
+				/* if elements in both sequences match,
+				 the corresponding score will be the score from
+				 previous elements + 1*/
+				scoreMatrix[i][j] = scoreMatrix[i - 1][j - 1] + 1;
+			} else {
+				/* else, pick the maximum value (score) from left and upper elements*/
+				scoreMatrix[i][j] = max(scoreMatrix[i-1][j], scoreMatrix[i][j-1]);
+			}
+		}
+	}
+	return scoreMatrix[sizeB][sizeA];
+}
 void printMatrix(char * seqA, char * seqB, mtype ** scoreMatrix, int sizeA,
 		int sizeB) {
 	int i, j;
@@ -138,27 +201,47 @@ void freeScoreMatrix(mtype **scoreMatrix, int sizeB) {
 
 int main(int argc, char ** argv) {
 	// sequence pointers for both sequences
-	char *seqA, *seqB;
+	// seqC armazena todos os caracteres distintos de seqB
+	char *seqA, *seqB, *seqC;
+	//matriz de suporte para armazernar os valores de K
+	//**p_matrix;
 
 	// sizes of both sequences
-	int sizeA, sizeB;
+	int sizeA, sizeB, sizeC;
 
 	//read both sequences
 	seqA = read_seq("fileC.in");
+	sizeA = strlen(seqA);
+	for (int i = 0; i < sizeA ; i++) {
+		if ((unsigned char)seqA[i] < 32 || (unsigned char)seqA[i] > 126) {
+			printf("OI, Caractere inválido encontrado: seqA[%d] = '%c' (%d)\n", i, seqA[i], (int)seqA[i]);
+		}
+	}
 	seqB = read_seq("fileD.in");
+	for (int i = 0; i < sizeB ; i++) {
+		if ((unsigned char)seqB[i] < 32 || (unsigned char)seqB[i] > 126) {
+			printf("OI, Caractere inválido encontrado: seqB[%d] = '%c' (%d)\n", i, seqB[i], (int)seqB[i]);
+		}
+	}
+	seqC = "ATCG";
+
 
 	//find out sizes
-	sizeA = strlen(seqA);
+
 	sizeB = strlen(seqB);
+	sizeC = strlen(seqC);
+	printf("%d %d %d\n", sizeA, sizeB, sizeC);
 
 	// allocate LCS score matrix
-	mtype ** scoreMatrix = allocateScoreMatrix(sizeA, sizeB);
+	mtype ** scoreMatrix = allocateScoreMatrix(sizeB, sizeA);
+	mtype ** p_matrix = allocateScoreMatrix(sizeC, sizeB);
 
 	//initialize LCS score matrix
 	initScoreMatrix(scoreMatrix, sizeA, sizeB);
 
 	//fill up the rest of the matrix and return final score (element locate at the last line and collumn)
-	mtype score = LCS(scoreMatrix, sizeA, sizeB, seqA, seqB);
+	calcula_p(p_matrix, seqB, sizeB, seqC, sizeC);
+	mtype score = LCS_par(scoreMatrix, p_matrix, sizeA, sizeB, sizeC, seqA, seqB, seqC);
 
 	/* if you wish to see the entire score matrix,
 	 for debug purposes, define DEBUGMATRIX. */
@@ -171,6 +254,7 @@ int main(int argc, char ** argv) {
 
 	//free score matrix
 	freeScoreMatrix(scoreMatrix, sizeB);
+	freeScoreMatrix(p_matrix, sizeB);
 
 	return EXIT_SUCCESS;
 }
