@@ -5,6 +5,7 @@
 
 #ifndef max
 #define max( a, b ) ( ((a) > (b)) ? (a) : (b) )
+#define min( a, b ) ( ((a) < (b)) ? (a) : (b) )
 #endif
 
 typedef unsigned short mtype;
@@ -66,7 +67,7 @@ mtype ** allocateScoreMatrix(int sizeA, int sizeB) {
 	return scoreMatrix;
 }
 
-void initScoreMatrix(mtype ** scoreMatrix,int sizeA, int sizeB) {
+void initScoreMatrix(mtype ** scoreMatrix, int sizeA, int sizeB) {
 	int i, j;
 	//Fill first line of LCS score matrix with zeroes
 	for (j = 0; j < (sizeA + 1); j++)
@@ -77,31 +78,40 @@ void initScoreMatrix(mtype ** scoreMatrix,int sizeA, int sizeB) {
 		scoreMatrix[i][0] = 0;
 }
 
-int LCS(mtype **scoreMatrix, int sizeA, int sizeB, char *seqA, char *seqB) {
-   int i, j, d;
+int LCS(mtype **scoreMatrix,  int sizeA,  int sizeB, char *seqA, char *seqB, int k_inicial, int k_max) {
+    int i, j;
+    int k = k_inicial;
+	omp_set_num_threads(4);
 
-    // Diagonais d = 2 até sizeA + sizeB
-    for (d = 2; d <= sizeA + sizeB; d++) {
-        int i_start = (d > sizeA) ? d - sizeA : 1;
-        int i_end = (d - 1 <= sizeB) ? d - 1 : sizeB;
+    while (k <= k_max){
+      	// Preenche por diagonais secundárias (anti-diagonais)
+			printf("k = %d\n", k);
+      for (int d = 2; d <= sizeA + sizeB; d++) {
+          #pragma omp parallel for private(i, j) schedule(static)
+          for (i = 1; i <= sizeB; i++) {
+              j = d - i;
+              if (j < 1 || j > sizeA) continue;
 
-        #pragma omp parallel for private(i, j) schedule(static)
-        for (i = i_start; i <= i_end; i++) {
-            j = d - i;
-            if (seqA[j - 1] == seqB[i - 1]) {
+              if(abs(i - j) > k) continue;
+
+              if (seqA[j - 1] == seqB[i - 1]) {
                 scoreMatrix[i][j] = scoreMatrix[i - 1][j - 1] + 1;
-            } else {
-                scoreMatrix[i][j] = max(scoreMatrix[i - 1][j], scoreMatrix[i][j - 1]);
-            }
+              } else {
+                  scoreMatrix[i][j] = max(scoreMatrix[i - 1][j], scoreMatrix[i][j - 1]);
+              }
+          }
+      }
+      	if (scoreMatrix[sizeB][sizeA]){
+        	return scoreMatrix[sizeB][sizeA];
+        } else {
+        	k = k * 2;
         }
     }
 
     return scoreMatrix[sizeB][sizeA];
 }
-
-
-void printMatrix(char * seqA, char * seqB, mtype ** scoreMatrix, long long int sizeA,
-		long long int sizeB) {
+void printMatrix(char * seqA, char * seqB, mtype ** scoreMatrix, int sizeA,
+		int sizeB) {
 	int i, j;
 
 	//print header
@@ -129,7 +139,7 @@ void printMatrix(char * seqA, char * seqB, mtype ** scoreMatrix, long long int s
 	printf("========================================\n");
 }
 
-void freeScoreMatrix(mtype **scoreMatrix, long long int sizeB) {
+void freeScoreMatrix(mtype **scoreMatrix, int sizeB) {
 	int i;
 	for (i = 0; i < (sizeB + 1); i++)
 		free(scoreMatrix[i]);
@@ -141,17 +151,20 @@ int main(int argc, char ** argv) {
 	char *seqA, *seqB;
 
 	// sizes of both sequences
-    int sizeA;
-    int sizeB;
+	int sizeA, sizeB;
 
 	//read both sequences
-	seqA = read_seq("fileC.in");
-	seqB = read_seq("fileD.in");
+	seqA = read_seq("fileE.in");
+	seqB = read_seq("fileF.in");
 
 	//find out sizes
 	sizeA = strlen(seqA);
 	sizeB = strlen(seqB);
-	printf("%d %d\n", sizeA, sizeB);
+
+  //k é a faixa de células a serem exploradas
+  int k_inicial = 0.1 * min(sizeA, sizeB);
+  int k_max = max(sizeA, sizeB);
+
 
 	// allocate LCS score matrix
 	mtype ** scoreMatrix = allocateScoreMatrix(sizeA, sizeB);
@@ -159,8 +172,10 @@ int main(int argc, char ** argv) {
 	//initialize LCS score matrix
 	initScoreMatrix(scoreMatrix, sizeA, sizeB);
 
+
+
 	//fill up the rest of the matrix and return final score (element locate at the last line and collumn)
-	mtype score = LCS(scoreMatrix, sizeA, sizeB, seqA, seqB);
+	mtype score = LCS(scoreMatrix, sizeA, sizeB, seqA, seqB, k_inicial, k_max);
 
 	/* if you wish to see the entire score matrix,
 	 for debug purposes, define DEBUGMATRIX. */
